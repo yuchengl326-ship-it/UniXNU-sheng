@@ -11,7 +11,7 @@ on:
       os:
         description: "OS profile of the images"
         type: choice
-        options: ["27", "26", "17"]
+        options: ["27", "26", "17", "macos-27.3-26C5035r"]
         default: "27"
       init_data:
         description: "Create a NEW installation seed if no saved seed exists (iPadOS 27 only)"
@@ -79,6 +79,30 @@ jobs:
             echo 'Set the repository secret UNIXNU_UNIQUE_CHIP_ID: the platform seed of the device, 8 hex digits.' >&2
             exit 1
           fi
+      - name: macos system image and data seed
+        if: inputs.os == 'macos-27.3-26C5035r'
+        env:
+          OS: ${{ inputs.os }}
+        run: |
+          set -e
+          cd UniXNU
+          python3 unixnu -D ../device --os "$OS" build userdata
+          OSDMG=$(python3 - <<'PY'
+          import sys
+          sys.path.insert(0, 'scripts')
+          from unixnu.cli import parser
+          from unixnu.config import Context
+          from unixnu.ipsw import Ipsw
+          args = parser().parse_args(['ipsw', '-D', '../device', '--os', __import__('os').environ['OS'], 'info', 'OS'])
+          print(Ipsw(Context(args)).disk_image('OS'))
+          PY
+          )
+          echo "OS disk image: $OSDMG"
+          GIB=$(python3 -c "import tomllib; print(tomllib.load(open('../device/board.toml','rb'))['os_overrides']['macos-27.3-26C5035r']['payload']['runtime']['data_gib'])")
+          echo "data_gib: $GIB"
+          sudo python3 scripts/make-macos-data-seed.py "$OSDMG" \
+            out/sheng/macos-27.3-26C5035r/sheng_macos/runtime/data.dbr \
+            --gib "$GIB" --skip-setup --user sheng:sheng-2026
       - name: seed cache identity
         id: seed-key
         env:
@@ -162,3 +186,13 @@ jobs:
             UniXNU/out/sheng/*/*/payload/payload.img
             UniXNU/out/sheng/*/*/kernel/kernel.macho
             UniXNU/out/sheng/*/*/package.manifest.json
+      - name: userdata image
+        if: inputs.os == 'macos-27.3-26C5035r'
+        uses: actions/upload-artifact@v4
+        with:
+          name: userdata-macos-27.3-26C5035r
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            UniXNU/out/sheng/*/*/userdata/userdata-root.img
+            UniXNU/out/sheng/*/*/userdata/userdata-root.json

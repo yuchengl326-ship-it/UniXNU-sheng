@@ -269,7 +269,9 @@ CI_ENABLE_METAL_GPU = "0"
 "skip_setup" = false
 # The persistent Data store sits below the 1 GiB log reserve at the end of userdata and must clear the root image
 # (16.4 GiB with OS, SystemOS, App and their .vroot tables). 215 GiB overlapped it by 36 MiB; 210 GiB leaves 5 GiB.
-"data_gib" = 210
+# Dual-system fork: the unixnu partition is carved from the tail of userdata; data_gib = partition GiB - 16.4 (root) - 1 (log reserve) - ~1 (slack).
+# Provisional for a 48 GiB unixnu partition; revisit after the on-device probe fixes the partition size.
+"data_gib" = 30
 # The owner apfs_boot_util for the read-only root container (launchd mount-phase-1/2), with apfs-boot-shim=1.
 "boot_shims" = true
 # The audio server plug-in as a macOS driver bundle in /Library/Audio/Plug-Ins/HAL (Library/ files of the addon).
