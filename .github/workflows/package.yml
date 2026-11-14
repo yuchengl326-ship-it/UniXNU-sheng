@@ -95,15 +95,16 @@ jobs:
           mkdir -p build
           python3 unixnu build userdata -D ../device --os "$OS"
           OSDMG_ALL=$(python3 - <<'PY'
-          import sys
+          import sys, tomllib
           sys.path.insert(0, 'scripts')
           from unixnu.cli import parser
           from unixnu.config import Context
           from unixnu.ipsw import Ipsw
           args = parser().parse_args(['ipsw', '-D', '../device', '--os', __import__('os').environ['OS'], 'info', 'OS'])
           ipsw = Ipsw(Context(args))
-          for component in ('OS', 'SystemOS', 'App'):
-              print(component + '=' + str(ipsw.disk_image(component)))
+          windows = tomllib.load(open('profiles/os/' + __import__('os').environ['OS'] + '/profile.toml', 'rb'))['userdata']['windows']
+          for window in windows:
+              print(window['name'] + '=' + str(ipsw.disk_image(window['component'])))
           PY
           )
           OSDMG=$(printf '%s\n' "$OSDMG_ALL" | grep '^OS=' | tail -n 1 | cut -d= -f2-)
