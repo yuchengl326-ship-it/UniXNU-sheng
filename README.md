@@ -57,6 +57,27 @@ patches, kernel, package, firmware, payload, boot image and the manifest.
 UNIXNU_UNIQUE_CHIP_ID=<8 hex digits> scripts/package.sh --os 27 --uefi ../uefi-sheng
 ```
 
+## Dual-system fork (macOS 27.3)
+
+This fork adds a dual-system build path: Android stays on userdata, and the
+macOS root image and Data store live on a `unixnu` partition carved from the
+tail of userdata. `scripts/package.sh` and its steps are unchanged; the
+differences are recorded in `porting.toml` and described in
+[reports/macos27-dualsys-build-plan.md](reports/macos27-dualsys-build-plan.md).
+
+- The `macos-27.3-26C5035r` profile joins the packaging workflow's OS choice.
+  `scripts/package.sh --os macos-27.3-26C5035r` (or `--os macos-27`) builds it
+  like any profile.
+- `os_overrides."macos-27.3-26C5035r".payload.runtime.data_gib` is sized for
+  the carved partition (30 for a 48 GiB `unixnu` partition) instead of the
+  upstream 210, which fills the whole userdata.
+- The workflow's macos step builds the userdata root image, creates the
+  macOS Data seed as root (with `--skip-setup` and a seeded local
+  administrator), restores the runner user's ownership of the runtime
+  directory, and uploads `userdata-root.img` beside the boot and payload
+  images: the macOS profile has no UEFI install entry, so the root image is
+  flashed with `fastboot flash unixnu userdata-root.img`.
+
 - The firmware inputs come from the official fastboot archive pinned in
   `board.toml` `[firmware.image]`: the preflight downloads it with concurrent
   HTTP ranges, keeps only the porting inputs, deletes the archive and
