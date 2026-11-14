@@ -53,7 +53,7 @@ jobs:
           submodules: recursive
       - name: tools
         run: |
-          brew install dtc llvm lld cmake mtools ninja glslang shaderc spirv-tools bison pkgconf rustup blacktop/tap/ipsw
+          brew install dtc llvm lld cmake mtools ninja glslang shaderc spirv-tools bison pkgconf rustup openssl@3 blacktop/tap/ipsw
           {
             echo "$HOME/.cargo/bin"
             echo "/opt/homebrew/opt/llvm/bin"
@@ -101,17 +101,34 @@ jobs:
           from unixnu.config import Context
           from unixnu.ipsw import Ipsw
           args = parser().parse_args(['ipsw', '-D', '../device', '--os', __import__('os').environ['OS'], 'info', 'OS'])
-          print(Ipsw(Context(args)).disk_image('OS'))
+          ipsw = Ipsw(Context(args))
+          for component in ('OS', 'SystemOS', 'App'):
+              print(component + '=' + str(ipsw.disk_image(component)))
           PY
           )
-          OSDMG=$(printf '%s\n' "$OSDMG_ALL" | tail -n 1)
+          OSDMG=$(printf '%s\n' "$OSDMG_ALL" | grep '^OS=' | tail -n 1 | cut -d= -f2-)
+          SYSOSDMG=$(printf '%s\n' "$OSDMG_ALL" | grep '^SystemOS=' | tail -n 1 | cut -d= -f2-)
+          APPDMG=$(printf '%s\n' "$OSDMG_ALL" | grep '^App=' | tail -n 1 | cut -d= -f2-)
           echo "OS disk image: $OSDMG"
+          echo "SystemOS disk image: $SYSOSDMG"
+          echo "App disk image: $APPDMG"
           GIB=$(python3 -c "import tomllib; print(tomllib.load(open('../device/board.toml','rb'))['os_overrides']['macos-27.3-26C5035r']['payload']['runtime']['data_gib'])")
           echo "data_gib: $GIB"
           sudo python3 scripts/make-macos-data-seed.py "$OSDMG" \
             out/sheng/macos-27.3-26C5035r/sheng_macos/runtime/data.dbr \
             --gib "$GIB" --skip-setup --user sheng:sheng-2026
           sudo chown -R "$(id -u):$(id -g)" out/sheng/macos-27.3-26C5035r/sheng_macos/runtime
+          # The source-storage archive step reads the device policies dir; the macOS profile
+          # ships verification.json only, so generate the per-window signed policies here.
+          read OSUUID SYSUUID APPUUID <<EOF
+          $(python3 -c "import tomllib; r = tomllib.load(open('profiles/os/macos-27.3-26C5035r/profile.toml','rb'))['root']; print(r['os_volume_uuid'], r['systemos_volume_uuid'], r['app_volume_uuid'])")
+          EOF
+          python3 scripts/make-root-policies.py \
+            --tree . \
+            --output ../device/scripts/policies/macos-27.3-26C5035r \
+            --window "OS=$OSDMG:$OSUUID" \
+            --window "SystemOS=$SYSOSDMG:$SYSUUID" \
+            --window "App=$APPDMG:$APPUUID"
       - name: Ath12kWifi sources
         if: inputs.os == '27' || inputs.os == 'macos-27.3-26C5035r'
         working-directory: device/drivers/Ath12kWifi
