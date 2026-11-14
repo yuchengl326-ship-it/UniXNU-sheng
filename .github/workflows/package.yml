@@ -86,7 +86,7 @@ jobs:
         run: |
           set -e
           cd UniXNU
-          python3 unixnu -D ../device --os "$OS" build userdata
+          python3 unixnu build userdata -D ../device --os "$OS"
           OSDMG=$(python3 - <<'PY'
           import sys
           sys.path.insert(0, 'scripts')
