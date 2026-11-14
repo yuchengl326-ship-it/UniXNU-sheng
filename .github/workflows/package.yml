@@ -92,6 +92,7 @@ jobs:
         run: |
           set -e
           cd UniXNU
+          mkdir -p build
           python3 unixnu build userdata -D ../device --os "$OS"
           OSDMG_ALL=$(python3 - <<'PY'
           import sys
