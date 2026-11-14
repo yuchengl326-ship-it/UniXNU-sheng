@@ -111,6 +111,7 @@ jobs:
           sudo python3 scripts/make-macos-data-seed.py "$OSDMG" \
             out/sheng/macos-27.3-26C5035r/sheng_macos/runtime/data.dbr \
             --gib "$GIB" --skip-setup --user sheng:sheng-2026
+          sudo chown -R "$(id -u):$(id -g)" out/sheng/macos-27.3-26C5035r/sheng_macos/runtime
       - name: seed cache identity
         id: seed-key
         env:
