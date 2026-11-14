@@ -96,7 +96,7 @@ jobs:
           args = parser().parse_args(['ipsw', '-D', '../device', '--os', __import__('os').environ['OS'], 'info', 'OS'])
           print(Ipsw(Context(args)).disk_image('OS'))
           PY
-          )
+          | tail -n 1)
           echo "OS disk image: $OSDMG"
           GIB=$(python3 -c "import tomllib; print(tomllib.load(open('../device/board.toml','rb'))['os_overrides']['macos-27.3-26C5035r']['payload']['runtime']['data_gib'])")
           echo "data_gib: $GIB"
