@@ -49,5 +49,12 @@ step.
 ## Limits
 
 No hardware run yet: the `unixnu` partition does not exist (on-device probe
-pending), the macOS build has not been dispatched, and `data_gib` 30 is
+pending), the macOS build has not completed, and `data_gib` 30 is
 provisional.
+
+## Build runs
+
+Run 43591366749 (2026-11-14) failed in the macos step before any fetch: the
+unixnu CLI takes options on the subparser, so `python3 unixnu -D DIR build
+userdata` exits with "invalid choice: '../device'". The workflow now runs
+`python3 unixnu build userdata -D ../device --os "$OS"`.
