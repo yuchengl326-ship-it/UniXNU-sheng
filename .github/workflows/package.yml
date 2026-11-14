@@ -112,6 +112,63 @@ jobs:
             out/sheng/macos-27.3-26C5035r/sheng_macos/runtime/data.dbr \
             --gib "$GIB" --skip-setup --user sheng:sheng-2026
           sudo chown -R "$(id -u):$(id -g)" out/sheng/macos-27.3-26C5035r/sheng_macos/runtime
+      - name: Ath12kWifi sources
+        if: inputs.os == '27' || inputs.os == 'macos-27.3-26C5035r'
+        working-directory: device/drivers/Ath12kWifi
+        run: |
+          # fetch-sources.py adds leading-slash patterns, which the runner's git rejects in cone
+          # mode. Clone the locked sources in no-cone mode first; the script then verifies and fills them.
+          python3 - <<'PY'
+          import json, subprocess
+          lock = json.load(open('tools/source-lock.json'))
+          for name in ('linux', 'freebsd'):
+              source, directory = lock[name], 'deps/' + name
+              subprocess.run(['git', 'clone', '--depth', '1', '--branch', source['ref'], '--filter=blob:none',
+                              '--sparse', source['url'], directory], check=True)
+              subprocess.run(['git', '-C', directory, 'sparse-checkout', 'set', '--no-cone', '/.unixnu-placeholder'],
+                             check=True)
+          PY
+          python3 tools/fetch-sources.py
+      - name: keyboard and video firmware
+        working-directory: device
+        run: |
+          python3 scripts/extract-files.py --section Keyboard
+          python3 scripts/extract-files.py --section Video
+      - name: wcn7850 wifi firmware
+        working-directory: device/firmware/wcn7850
+        run: |
+          # The repository pins SHA-256 digests in manifest.json but does not carry the WCN7850
+          # binaries; fetch them from the pinned public commit and verify against the manifest.
+          for f in amss.bin m3.bin board-2.bin; do
+            curl -fsSL "https://raw.githubusercontent.com/ks114514/UniXNU-sheng/92b9968d1450f2415304d7807c8969ae9dec4c0a/firmware/wcn7850/$f" -o "$f"
+          done
+          python3 - <<'PY'
+          import hashlib, json
+          manifest = json.load(open('manifest.json'))['files']
+          for name, expected in manifest.items():
+              digest = hashlib.sha256(open(name, 'rb').read()).hexdigest()
+              if digest != expected['sha256']:
+                  raise SystemExit(name + ': sha256 mismatch')
+              print(name + ': verified')
+          PY
+      - name: prelink layout report
+        # Diagnostic only: XnuPrelink's collision error then names the native code end and the collection data address,
+        # so a kernel that is too large reports by how much.
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('UniXNU/kits/XnuPrelink/fileset_layout.py')
+          s = p.read_text()
+          old = "raise ValueError('Native code would collide with collection data')"
+          new = ("raise ValueError(f'Native code would collide with collection data: native __TEXT_EXEC {self.placements[\"__TEXT_EXEC\"]:#x}, '"
+                 " f'code end {code_end:#x}, __DATA {self.roots[\"__DATA\"][\"va\"]:#x}, '"
+                 " f'over by {code_end - self.roots[\"__DATA\"][\"va\"]} bytes')")
+          if old in s:
+              s = s.replace(old, new)
+          old = "raise ValueError(f'Native {segment[\"name\"]} overlaps a retained segment')"
+          new = ("raise ValueError(f'Native {segment[\"name\"]} overlaps a retained segment: {begin:#x}..{end:#x} meets '"
+                 " + ', '.join(f'{b:#x}..{e:#x}' for b, e in self.occupied + placed if begin < e and b < end))")
+          p.write_text(s.replace(old, new))
       - name: seed cache identity
         id: seed-key
         env:
@@ -168,6 +225,55 @@ jobs:
             args+=(--init-data)
           fi
           scripts/package.sh "${args[@]}"
+      - name: native kernel data report
+        # Diagnostic only, after a failed package: the native kernel's __DATA sections and its largest __DATA symbols.
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import glob, re, subprocess
+          kernels = glob.glob('UniXNU/out/sheng/*/*/tree/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf')
+          if not kernels:
+              raise SystemExit('no native kernel')
+          kernel = kernels[0]
+          out = subprocess.run(['otool', '-l', kernel], capture_output=True, text=True).stdout
+          for block in re.split(r'Load command|\nSection\n', out)[1:]:
+              fields = dict(re.findall(r'^\s*(\w+) (\S+)$', block, re.M))
+              if fields.get('segname') == '__DATA':
+                  print(fields.get('sectname', 'segment'), fields.get('addr', fields.get('vmaddr')), fields.get('size', fields.get('vmsize')))
+          lines = subprocess.run(['nm', '-n', '-m', kernel], capture_output=True, text=True).stdout.splitlines()
+          symbols = []
+          for line in lines:
+              m = re.match(r'^([0-9a-f]{16}) \((__\w+),(__\w+)\) .*? (\S+)$', line)
+              if m:
+                  symbols.append((int(m.group(1), 16), m.group(2), m.group(3), m.group(4)))
+          sized = []
+          for (a, seg, sect, name), nxt in zip(symbols, symbols[1:] + [(None,) * 4]):
+              if seg == '__DATA' and nxt[0] is not None and nxt[1] == '__DATA' and nxt[2] == sect:
+                  sized.append((nxt[0] - a, sect, name))
+          for size, sect, name in sorted(sized, reverse=True)[:120]:
+              print(size, sect, name)
+          PY
+      - name: redact build logs
+        if: always()
+        env:
+          SEED: ${{ secrets.UNIXNU_UNIQUE_CHIP_ID }}
+        run: |
+          mkdir -p build-logs
+          for d in UniXNU/out/sheng/*/*/logs; do
+            [ -d "$d" ] && cp -R "$d"/. build-logs/
+          done
+          for f in UniXNU/out/sheng/*/*/tree/build/xnu/fileset-reference/*/*-build.log; do
+            [ -f "$f" ] && cp "$f" "build-logs/fileset-reference-$(basename "$(dirname "$f")")-$(basename "$f")"
+          done
+          find build-logs -type f -exec sed -i '' "s/$SEED/********/g" {} + 2>/dev/null || true
+      - name: build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ inputs.os }}
+          retention-days: 1
+          if-no-files-found: ignore
+          path: build-logs
       - uses: actions/cache/save@v4
         if: always() && inputs.os == '27' && steps.data-cache.outputs.cache-hit != 'true' && hashFiles('UniXNU/out/sheng/ipados-27.0.1-24A446/sheng_ipados27/runtime/data.dbr') != ''
         with:
