@@ -79,6 +79,12 @@ jobs:
             echo 'Set the repository secret UNIXNU_UNIQUE_CHIP_ID: the platform seed of the device, 8 hex digits.' >&2
             exit 1
           fi
+      - name: IPSW cache
+        if: inputs.os == 'macos-27.3-26C5035r'
+        uses: actions/cache@v4
+        with:
+          path: UniXNU/out/ipsw
+          key: ipsw-macos-27.3-26C5035r-v1
       - name: macos system image and data seed
         if: inputs.os == 'macos-27.3-26C5035r'
         env:
@@ -87,7 +93,7 @@ jobs:
           set -e
           cd UniXNU
           python3 unixnu build userdata -D ../device --os "$OS"
-          OSDMG=$(python3 - <<'PY'
+          OSDMG_ALL=$(python3 - <<'PY'
           import sys
           sys.path.insert(0, 'scripts')
           from unixnu.cli import parser
@@ -96,7 +102,8 @@ jobs:
           args = parser().parse_args(['ipsw', '-D', '../device', '--os', __import__('os').environ['OS'], 'info', 'OS'])
           print(Ipsw(Context(args)).disk_image('OS'))
           PY
-          | tail -n 1)
+          )
+          OSDMG=$(printf '%s\n' "$OSDMG_ALL" | tail -n 1)
           echo "OS disk image: $OSDMG"
           GIB=$(python3 -c "import tomllib; print(tomllib.load(open('../device/board.toml','rb'))['os_overrides']['macos-27.3-26C5035r']['payload']['runtime']['data_gib'])")
           echo "data_gib: $GIB"
